@@ -1,0 +1,4 @@
+{
+  "root": "client/dist",
+  "clean_urls": true
+}
