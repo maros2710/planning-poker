@@ -92,7 +92,13 @@ export default function App() {
 
   const handleVote = (v) => { if (!socket) return; setMyVote(v); socket.emit("vote", v); };
   const handleReveal = () => socket?.emit("reveal");
-  const handleNewGame = () => { setMyVote(null); socket?.emit("newGame"); };
+  const handleNewGame = () => {
+    setMyVote(null);
+    if (socket) {
+      socket.emit("vote", null); // zruší aj označenie karty na serveri
+      socket.emit("newGame");
+    }
+  };
   const kickPlayer = (id) => socket?.emit("kick", id);
 
   const average = useMemo(() => {
