@@ -43,6 +43,18 @@ export default function App() {
   const [name, setName] = useState('');
   const [remote, setRemote] = useState({ players: [], revealed: false, adminId: null });
   const [myVote, setMyVote] = useState(null);
+
+  const [wasRevealed, setWasRevealed] = useState(false);
+
+  useEffect(() => {
+    if (remote.revealed && !wasRevealed) setWasRevealed(true);
+    if (!remote.revealed && wasRevealed) {
+      // prechod z "revealed" -> "new game"
+      setMyVote(null);
+      setWasRevealed(false);
+    }
+  }, [remote.revealed]);
+  
   const [nameDialogOpen, setNameDialogOpen] = useState(false);
   const isMobile = useMediaQuery('(max-width:600px)');
   const [themeMode, setThemeMode] = useState(getCookie("pp_theme") || "light");
