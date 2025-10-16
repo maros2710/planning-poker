@@ -20,7 +20,7 @@ const DECK = [
   { label: "21", value: 21 },
   { label: "34", value: 34 },
   { label: "?", value: "?" },
-  { label: "☕", value: "coffee" }
+  { label: "☕", value: "☕" }
 ];
 
 function setCookie(name, value, days = 180) {
