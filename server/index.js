@@ -52,7 +52,14 @@ io.on("connection", socket => {
 
   socket.on("reveal", () => { state.revealed = true; broadcast(); });
 
-  socket.on("newGame", () => { state.revealed = false; for (const p of state.players.values()) p.vote = null; broadcast(); });
+  socket.on("newGame", () => {
+  state.revealed = false;
+  for (const [id, p] of state.players.entries()) {
+    p.vote = null;
+  }
+  broadcast(); // pošle všetkým informáciu, že všetky hlasy sú null
+});
+
 
   // kick allowed only for admin
   socket.on("kick", (targetId) => {
