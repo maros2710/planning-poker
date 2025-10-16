@@ -43,6 +43,13 @@ export default function App() {
   const [name, setName] = useState('');
   const [remote, setRemote] = useState({ players: [], revealed: false, adminId: null });
   const [myVote, setMyVote] = useState(null);
+  useEffect(() => {
+    // ak sa začala nová hra, zruš lokálne zvýraznenie karty
+    if (!remote.revealed && remote.players.every(p => p.vote === null)) {
+      setMyVote(null);
+    }
+  }, [remote]);
+  
   const [nameDialogOpen, setNameDialogOpen] = useState(false);
   const isMobile = useMediaQuery('(max-width:600px)');
   const [themeMode, setThemeMode] = useState(getCookie("pp_theme") || "light");
