@@ -14,7 +14,7 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, { cors: { origin: "*" } });
 
 // In-memory state
-const state = { players: new Map(), revealed: false };
+const state = { players: new Map(), revealed: false, adminId: null };
 
 function publicState() {
   return {
@@ -24,13 +24,16 @@ function publicState() {
       voted: p.vote !== null && p.vote !== undefined,
       vote: state.revealed ? p.vote : null,
     })),
-    revealed: state.revealed
+    revealed: state.revealed,
+    adminId: state.adminId
   };
 }
 
 function broadcast() { io.emit("state", publicState()); }
 
 io.on("connection", socket => {
+  // first connection becomes admin
+  if (!state.adminId) state.adminId = socket.id;
   state.players.set(socket.id, { name: `Player ${socket.id.slice(0,5)}`, vote: null });
   broadcast();
 
@@ -48,8 +51,34 @@ io.on("connection", socket => {
   });
 
   socket.on("reveal", () => { state.revealed = true; broadcast(); });
+
   socket.on("newGame", () => { state.revealed = false; for (const p of state.players.values()) p.vote = null; broadcast(); });
-  socket.on("disconnect", () => { state.players.delete(socket.id); broadcast(); });
+
+  // kick allowed only for admin
+  socket.on("kick", (targetId) => {
+    if (socket.id !== state.adminId) return; // not admin
+    if (!targetId || targetId === state.adminId) return; // cannot kick self/admin
+    const targetSocket = io.sockets.sockets.get(targetId);
+    if (targetSocket) {
+      // notify target and disconnect
+      targetSocket.emit("kicked");
+      targetSocket.disconnect(true);
+    }
+    if (state.players.has(targetId)) {
+      state.players.delete(targetId);
+      broadcast();
+    }
+  });
+
+  socket.on("disconnect", () => {
+    // if admin leaves, assign next connected as admin
+    state.players.delete(socket.id);
+    if (state.adminId === socket.id) {
+      const next = state.players.keys().next();
+      state.adminId = next.done ? null : next.value;
+    }
+    broadcast();
+  });
 });
 
 // Serve client build

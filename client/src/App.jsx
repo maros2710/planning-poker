@@ -3,11 +3,10 @@ import { io } from "socket.io-client";
 import {
   AppBar, Toolbar, Typography, Button, Box, Grid, Paper, Stack, Avatar,
   Divider, Chip, useMediaQuery, Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, CssBaseline
+  TextField, CssBaseline, IconButton, Tooltip
 } from "@mui/material";
 import CasinoIcon from "@mui/icons-material/Casino";
-import DarkModeIcon from "@mui/icons-material/DarkMode";
-import LightModeIcon from "@mui/icons-material/LightMode";
+import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || window.location.origin;
@@ -35,11 +34,14 @@ function getCookie(name) {
   if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
   return "";
 }
+function clearCookie(name) {
+  document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/';
+}
 
 export default function App() {
   const [socket, setSocket] = useState(null);
   const [name, setName] = useState('');
-  const [remote, setRemote] = useState({ players: [], revealed: false });
+  const [remote, setRemote] = useState({ players: [], revealed: false, adminId: null });
   const [myVote, setMyVote] = useState(null);
   const [nameDialogOpen, setNameDialogOpen] = useState(false);
   const isMobile = useMediaQuery('(max-width:600px)');
@@ -56,6 +58,13 @@ export default function App() {
     setSocket(s);
     s.on("state", st => setRemote(st));
     s.on("connect", () => s.emit("setName", saved));
+    // kicked handler
+    s.on("kicked", () => {
+      clearCookie("pp_name");
+      setSocket(null);
+      setRemote({ players: [], revealed: false, adminId: null });
+      setNameDialogOpen(true);
+    });
     return () => s.disconnect();
   }, []);
 
@@ -69,6 +78,12 @@ export default function App() {
       setSocket(s);
       s.on("state", st => setRemote(st));
       s.on("connect", () => s.emit("setName", trimmed));
+      s.on("kicked", () => {
+        clearCookie("pp_name");
+        setSocket(null);
+        setRemote({ players: [], revealed: false, adminId: null });
+        setNameDialogOpen(true);
+      });
     } else {
       socket.emit("setName", trimmed);
     }
@@ -78,6 +93,7 @@ export default function App() {
   const handleVote = (v) => { if (!socket) return; setMyVote(v); socket.emit("vote", v); };
   const handleReveal = () => socket?.emit("reveal");
   const handleNewGame = () => { setMyVote(null); socket?.emit("newGame"); };
+  const kickPlayer = (id) => socket?.emit("kick", id);
 
   const average = useMemo(() => {
     if (!remote.revealed) return null;
@@ -85,6 +101,8 @@ export default function App() {
     if (nums.length === 0) return "—";
     return (nums.reduce((a,b)=>a+b,0)/nums.length).toFixed(2);
   }, [remote]);
+
+  const isAdmin = remote.adminId && socket?.id && remote.adminId === socket.id;
 
   return (
     <ThemeProvider theme={theme}>
@@ -94,7 +112,8 @@ export default function App() {
           <Toolbar sx={{ flexWrap: "wrap", gap: 1 }}>
             <CasinoIcon sx={{ mr: 1 }} />
             <Typography variant="h6" sx={{ flexGrow: 1, minWidth: isMobile ? "100%" : "auto" }}>Planning Poker</Typography>
-            <Button color="inherit" onClick={openNameDialog}>Change name</Button>
+            <Button color="inherit" onClick={() => setNameDialogOpen(true)}>Change name</Button>
+            {isAdmin && <Typography sx={{ mr: 1, opacity: 0.8 }}>Admin</Typography>}
             <Button color="inherit" onClick={handleReveal}>Show cards</Button>
             <Button color="inherit" onClick={handleNewGame}>New game</Button>
             <Button color="inherit" onClick={() => setThemeMode(m => m === "light" ? "dark" : "light")}>
@@ -135,12 +154,19 @@ export default function App() {
             <Typography variant="h6" gutterBottom>Players 💬</Typography>
             <Stack spacing={1}>
               {remote.players.map(p => (
-                <Paper key={p.id} sx={{ p: 1.5, display: "flex", alignItems: "center" }}>
-                  <Avatar sx={{ bgcolor: p.voted ? "#4caf50" : "#bdbdbd", mr: 2 }}>{p.name?.[0]?.toUpperCase() || "?"}</Avatar>
+                <Paper key={p.id} sx={{ p: 1.5, display: "flex", alignItems: "center", gap: 1 }}>
+                  <Avatar sx={{ bgcolor: p.voted ? "#4caf50" : "#bdbdbd", mr: 1 }}>{p.name?.[0]?.toUpperCase() || "?"}</Avatar>
                   <Typography sx={{ flexGrow: 1 }}>{p.name}</Typography>
                   <Typography variant="h6" sx={{ minWidth: 48, textAlign: "center" }}>
                     {remote.revealed ? (p.vote ?? "—") : (p.voted ? "✅" : "…")}
                   </Typography>
+                  {isAdmin && p.id !== socket?.id && (
+                    <Tooltip title="Kick player">
+                      <IconButton aria-label="kick" color="error" onClick={() => kickPlayer(p.id)}>
+                        <DeleteForeverIcon />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                 </Paper>
               ))}
             </Stack>
@@ -173,7 +199,6 @@ export default function App() {
             />
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setNameDialogOpen(false)}>Cancel</Button>
             <Button onClick={submitName} variant="contained">Save</Button>
           </DialogActions>
         </Dialog>
