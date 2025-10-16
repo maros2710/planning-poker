@@ -1,6 +1,6 @@
 {
   "name": "planning-poker-server",
-  "version": "1.6.0",
+  "version": "1.8.0",
   "type": "module",
   "dependencies": {
     "cors": "2.8.5",

@@ -43,25 +43,13 @@ export default function App() {
   const [name, setName] = useState('');
   const [remote, setRemote] = useState({ players: [], revealed: false, adminId: null });
   const [myVote, setMyVote] = useState(null);
-
-  const [wasRevealed, setWasRevealed] = useState(false);
-
-  useEffect(() => {
-    if (remote.revealed && !wasRevealed) setWasRevealed(true);
-    if (!remote.revealed && wasRevealed) {
-      // prechod z "revealed" -> "new game"
-      setMyVote(null);
-      setWasRevealed(false);
-    }
-  }, [remote.revealed]);
-  
   const [nameDialogOpen, setNameDialogOpen] = useState(false);
   const isMobile = useMediaQuery('(max-width:600px)');
   const [themeMode, setThemeMode] = useState(getCookie("pp_theme") || "light");
   const theme = useMemo(() => createTheme({ palette: { mode: themeMode } }), [themeMode]);
+  const [wasRevealed, setWasRevealed] = useState(false);
   useEffect(() => { setCookie("pp_theme", themeMode); }, [themeMode]);
 
-  // connect after name known
   useEffect(() => {
     const saved = getCookie("pp_name");
     if (!saved) { setNameDialogOpen(true); return; }
@@ -69,8 +57,12 @@ export default function App() {
     const s = io(SERVER_URL, { transports: ["websocket"] });
     setSocket(s);
     s.on("state", st => setRemote(st));
-    s.on("connect", () => s.emit("setName", saved));
-    // kicked handler
+    s.on("connect", () => {
+      const oldId = localStorage.getItem("pp_socket_id");
+      localStorage.setItem("pp_socket_id", s.id);
+      s.emit("hello", oldId);
+      s.emit("setName", saved);
+    });
     s.on("kicked", () => {
       clearCookie("pp_name");
       setSocket(null);
@@ -89,7 +81,12 @@ export default function App() {
       const s = io(SERVER_URL, { transports: ["websocket"] });
       setSocket(s);
       s.on("state", st => setRemote(st));
-      s.on("connect", () => s.emit("setName", trimmed));
+      s.on("connect", () => {
+        const oldId = localStorage.getItem("pp_socket_id");
+        localStorage.setItem("pp_socket_id", s.id);
+        s.emit("hello", oldId);
+        s.emit("setName", trimmed);
+      });
       s.on("kicked", () => {
         clearCookie("pp_name");
         setSocket(null);
@@ -104,14 +101,13 @@ export default function App() {
 
   const handleVote = (v) => { if (!socket) return; setMyVote(v); socket.emit("vote", v); };
   const handleReveal = () => socket?.emit("reveal");
-  const handleNewGame = () => {
-    setMyVote(null);
-    if (socket) {
-      socket.emit("vote", null); // zruší aj označenie karty na serveri
-      socket.emit("newGame");
-    }
-  };
+  const handleNewGame = () => { setMyVote(null); socket?.emit("vote", null); socket?.emit("newGame"); };
   const kickPlayer = (id) => socket?.emit("kick", id);
+
+  useEffect(() => {
+    if (remote.revealed && !wasRevealed) setWasRevealed(true);
+    if (!remote.revealed && wasRevealed) { setMyVote(null); setWasRevealed(false); }
+  }, [remote.revealed]);
 
   const average = useMemo(() => {
     if (!remote.revealed) return null;
@@ -173,8 +169,12 @@ export default function App() {
             <Stack spacing={1}>
               {remote.players.map(p => (
                 <Paper key={p.id} sx={{ p: 1.5, display: "flex", alignItems: "center", gap: 1 }}>
-                  <Avatar sx={{ bgcolor: p.voted ? "#4caf50" : "#bdbdbd", mr: 1 }}>{p.name?.[0]?.toUpperCase() || "?"}</Avatar>
-                  <Typography sx={{ flexGrow: 1 }}>{p.name}</Typography>
+                  <Avatar sx={{ bgcolor: p.voted ? "#4caf50" : "#bdbdbd", mr: 1 }}>
+                    {p.name?.[0]?.toUpperCase() || "?"}
+                  </Avatar>
+                  <Typography sx={{ flexGrow: 1 }}>
+                    {p.name} {!p.isConnected ? "😴" : ""}
+                  </Typography>
                   <Typography variant="h6" sx={{ minWidth: 48, textAlign: "center" }}>
                     {remote.revealed ? (p.vote ?? "—") : (p.voted ? "✅" : "…")}
                   </Typography>

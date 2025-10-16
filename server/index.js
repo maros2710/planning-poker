@@ -23,6 +23,7 @@ function publicState() {
       name: p.name,
       voted: p.vote !== null && p.vote !== undefined,
       vote: state.revealed ? p.vote : null,
+      isConnected: !!p.isConnected
     })),
     revealed: state.revealed,
     adminId: state.adminId
@@ -32,15 +33,30 @@ function publicState() {
 function broadcast() { io.emit("state", publicState()); }
 
 io.on("connection", socket => {
-  // first connection becomes admin
   if (!state.adminId) state.adminId = socket.id;
-  state.players.set(socket.id, { name: `Player ${socket.id.slice(0,5)}`, vote: null });
+
+  state.players.set(socket.id, { name: `Player ${socket.id.slice(0,5)}`, vote: null, isConnected: true });
   broadcast();
+
+  // attempt reattach
+  socket.on("hello", (oldId) => {
+    if (!oldId || oldId === socket.id) return;
+    const oldPlayer = state.players.get(oldId);
+    if (oldPlayer) {
+      state.players.set(socket.id, { ...oldPlayer, isConnected: true });
+      state.players.delete(oldId);
+      if (state.adminId === oldId) state.adminId = socket.id;
+      broadcast();
+    } else {
+      const p = state.players.get(socket.id);
+      if (p) { p.isConnected = true; broadcast(); }
+    }
+  });
 
   socket.on("setName", name => {
     const trimmed = String(name || "").trim().slice(0, 40) || `Player ${socket.id.slice(0,5)}`;
     const p = state.players.get(socket.id);
-    if (p) { p.name = trimmed; broadcast(); }
+    if (p) { p.name = trimmed; p.isConnected = true; broadcast(); }
   });
 
   // number | "?" | "coffee" | null
@@ -53,21 +69,17 @@ io.on("connection", socket => {
   socket.on("reveal", () => { state.revealed = true; broadcast(); });
 
   socket.on("newGame", () => {
-  state.revealed = false;
-  for (const [id, p] of state.players.entries()) {
-    p.vote = null;
-  }
-  broadcast(); // pošle všetkým informáciu, že všetky hlasy sú null
-});
+    state.revealed = false;
+    for (const p of state.players.values()) p.vote = null;
+    broadcast();
+  });
 
-
-  // kick allowed only for admin
+  // kick (admin only)
   socket.on("kick", (targetId) => {
-    if (socket.id !== state.adminId) return; // not admin
-    if (!targetId || targetId === state.adminId) return; // cannot kick self/admin
+    if (socket.id !== state.adminId) return;
+    if (!targetId || targetId === state.adminId) return;
     const targetSocket = io.sockets.sockets.get(targetId);
     if (targetSocket) {
-      // notify target and disconnect
       targetSocket.emit("kicked");
       targetSocket.disconnect(true);
     }
@@ -77,18 +89,31 @@ io.on("connection", socket => {
     }
   });
 
+  // graceful disconnect keep 2h
   socket.on("disconnect", () => {
-    // if admin leaves, assign next connected as admin
-    state.players.delete(socket.id);
+    const player = state.players.get(socket.id);
+    if (!player) return;
+    player.disconnectedAt = Date.now();
+    player.isConnected = false;
+
     if (state.adminId === socket.id) {
-      const next = state.players.keys().next();
-      state.adminId = next.done ? null : next.value;
+      const next = Array.from(state.players.keys()).find(id => id !== socket.id && state.players.get(id)?.isConnected);
+      state.adminId = next || null;
     }
+
     broadcast();
+
+    setTimeout(() => {
+      const p = state.players.get(socket.id);
+      if (p && !p.isConnected && Date.now() - (p.disconnectedAt || 0) >= 2 * 60 * 60 * 1000) {
+        state.players.delete(socket.id);
+        broadcast();
+      }
+    }, 2 * 60 * 60 * 1000);
   });
 });
 
-// Serve client build
+// serve client build
 const distPath = path.join(__dirname, "..", "client", "dist");
 app.use(express.static(distPath));
 app.get("*", (_req, res) => res.sendFile(path.join(distPath, "index.html")));
